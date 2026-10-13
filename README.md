@@ -29,6 +29,27 @@ npm install
 npm run dev        # or: npm run build:all && electron apps/shell
 ```
 
+## Keeping GenOffice up to date
+
+A copy of GenOffice built from source doesn't update itself. `scripts/update-genoffice.sh` moves it to the latest GenOffice release, re-applies the patch and runs `npm install`:
+
+```sh
+~/genoffice-obsidian/scripts/update-genoffice.sh ~/genoffice
+```
+
+- If you're already on the latest release with the current patch, it does nothing.
+- It also pulls this repo first, so fixes to the Obsidian code come along.
+- If the patch doesn't fit a new release yet, it goes back to the release you had, patch included.
+- If you've edited GenOffice's files yourself, it changes nothing.
+
+To run it once a day automatically (systemd), install the timer from a terminal where `npm` works:
+
+```sh
+~/genoffice-obsidian/scripts/install-autoupdate.sh ~/genoffice
+journalctl --user -u genoffice-update.service -n 50     # what the last run did
+~/genoffice-obsidian/scripts/install-autoupdate.sh --remove
+```
+
 ## Layout
 
 | Path | Runs in | What it does |
