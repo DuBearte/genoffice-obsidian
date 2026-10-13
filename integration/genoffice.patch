@@ -1,0 +1,382 @@
+diff --git a/apps/markdown/electron.vite.config.ts b/apps/markdown/electron.vite.config.ts
+index c3f0a10..1d0651f 100644
+--- a/apps/markdown/electron.vite.config.ts
++++ b/apps/markdown/electron.vite.config.ts
+@@ -19,13 +19,21 @@ const TIPTAP_DEDUPE = [
+ ]
+ 
+ export default defineConfig({
+-  // @genoffice/i18n and @genoffice/electron-utils ship as TS source — must be bundled
++  // @genoffice/i18n, @genoffice/electron-utils and genoffice-obsidian ship as TS source — must be bundled
+   main: {
+-    plugins: [externalizeDepsPlugin({ exclude: ['@genoffice/i18n', '@genoffice/electron-utils'] })],
++    plugins: [
++      externalizeDepsPlugin({
++        exclude: ['@genoffice/i18n', '@genoffice/electron-utils', 'genoffice-obsidian'],
++      }),
++    ],
+   },
+   preload: {
+     // same bundling requirement as main (see comment above)
+-    plugins: [externalizeDepsPlugin({ exclude: ['@genoffice/i18n', '@genoffice/electron-utils'] })],
++    plugins: [
++      externalizeDepsPlugin({
++        exclude: ['@genoffice/i18n', '@genoffice/electron-utils', 'genoffice-obsidian'],
++      }),
++    ],
+   },
+   renderer: {
+     plugins: [react()],
+diff --git a/apps/markdown/package.json b/apps/markdown/package.json
+index 2447f86..c532466 100644
+--- a/apps/markdown/package.json
++++ b/apps/markdown/package.json
+@@ -62,6 +62,7 @@
+   },
+   "author": "GenOffice",
+   "dependencies": {
++    "genoffice-obsidian": "github:DuBearte/genoffice-obsidian",
+     "@tiptap/extension-mathematics": "3.31.0",
+     "katex": "^0.18.2",
+     "json5": "^2.2.3",
+diff --git a/apps/markdown/src/main/markdown-main.ts b/apps/markdown/src/main/markdown-main.ts
+index e9c0fe5..86b9346 100644
+--- a/apps/markdown/src/main/markdown-main.ts
++++ b/apps/markdown/src/main/markdown-main.ts
+@@ -1,5 +1,6 @@
+ import { existsSync } from 'node:fs'
+ import { readFile, writeFile } from 'node:fs/promises'
++import { registerObsidianVaultIpc } from 'genoffice-obsidian/main'
+ import { basename, dirname, extname, join, relative, resolve } from 'node:path'
+ import { pathToFileURL } from 'node:url'
+ import {
+@@ -732,6 +733,9 @@ function registerMarkdownIpc(): void {
+   if (ipcRegistered) return
+   ipcRegistered = true
+ 
++  // Obsidian vaults: [[wikilinks]], ![[embeds]] and the vault sidebar
++  registerObsidianVaultIpc()
++
+   registerImageProtocol()
+ 
+   ipcMain.handle(MARKDOWN_CHANNELS.consumePending, (e) => openPathByWc.get(e.sender.id) ?? null)
+diff --git a/apps/markdown/src/preload/index.ts b/apps/markdown/src/preload/index.ts
+index 735c201..db6f862 100644
+--- a/apps/markdown/src/preload/index.ts
++++ b/apps/markdown/src/preload/index.ts
+@@ -4,6 +4,7 @@ import type { Lang } from '@genoffice/i18n'
+ import type { AiStreamChunk } from '@genoffice/ai-provider'
+ import type { ProjectApi } from '@genoffice/project-store'
+ import { installDropOpenBridge } from '@genoffice/electron-utils/drop-open'
++import { exposeObsidianVault } from 'genoffice-obsidian/preload'
+ import { AI_CHANNELS, MARKDOWN_CHANNELS } from '../shared/ipc'
+ import type {
+   AutoSaveDefault,
+@@ -148,6 +149,7 @@ const projectApi: Pick<ProjectApi, 'resolveChat' | 'appendChat' | 'loadChat' | '
+ 
+ contextBridge.exposeInMainWorld('markdownApi', api)
+ contextBridge.exposeInMainWorld('projectApi', projectApi)
++exposeObsidianVault()
+ 
+ // open documents dragged from the OS onto this tab as a new shell tab
+ installDropOpenBridge()
+diff --git a/apps/markdown/src/renderer/App.tsx b/apps/markdown/src/renderer/App.tsx
+index 6cd87ff..b097f7c 100644
+--- a/apps/markdown/src/renderer/App.tsx
++++ b/apps/markdown/src/renderer/App.tsx
+@@ -35,6 +35,8 @@ import { isSourceMode, textModeForPath, type TextMode } from '../shared/text-mod
+ import { renameAction } from '../shared/rename-mode'
+ import { readSourceText, writeSourceText, type SourceTextFormat } from '../shared/source-text'
+ import { PlainTextEditor, type PlainTextEditorHandle } from './source/PlainTextEditor'
++import { VaultStore } from 'genoffice-obsidian'
++import { VaultSidebar } from 'genoffice-obsidian/react'
+ import { buildExtensions } from './editor/extensions'
+ import { tiptapFindTarget } from './editor/findTarget'
+ import { collectOutline, type OutlineItem } from './editor/outline'
+@@ -167,6 +169,14 @@ export default function App() {
+   const [showFind, setShowFind] = useState(false)
+   const [findFocus, setFindFocus] = useState<FindFocusRequest>({ field: 'find', nonce: 0 })
+   const [outlineOpen, setOutlineOpen] = useState(false)
++  // Obsidian vault: one store per tab, shared by the editor's links and the sidebar
++  const vaultStore = useMemo(
++    () => (window.obsidianVault ? new VaultStore(window.obsidianVault) : null),
++    [],
++  )
++  useEffect(() => () => vaultStore?.dispose(), [vaultStore])
++  const [vaultOpen, setVaultOpen] = useState(() => localStorage.getItem('mdapp.vaultOpen') === '1')
++  const openVaultPath = useCallback((path: string) => window.markdownApi.openSourcePath(path), [])
+   const [outlineWidth, setOutlineWidth] = useState(
+     () => Number(localStorage.getItem('mdapp.outlineWidth')) || undefined,
+   )
+@@ -254,8 +264,9 @@ export default function App() {
+       slashController: controller,
+       slashItems: () =>
+         buildSlashItems({ insertImage: filePathRef.current ? insertImage : undefined }),
++      obsidian: vaultStore ? { store: vaultStore, openPath: openVaultPath } : undefined,
+     })
+-  }, [insertImage])
++  }, [insertImage, vaultStore, openVaultPath])
+ 
+   const editor = useEditor({
+     extensions,
+@@ -272,6 +283,11 @@ export default function App() {
+   editorRef.current = editor
+   filePathRef.current = filePath
+ 
++  // links resolve relative to the open note; a note inside a vault attaches to it
++  useEffect(() => {
++    void vaultStore?.setDocumentPath(filePath)
++  }, [vaultStore, filePath])
++
+   useEffect(() => {
+     localStorage.setItem('mdapp.spellcheck', spellcheck ? '1' : '0')
+     editor?.setOptions({
+@@ -1096,6 +1112,16 @@ export default function App() {
+         onToggleSource={toggleSource}
+         outlineOpen={outlineOpen}
+         onToggleOutline={() => setOutlineOpen((v) => !v)}
++        vaultOpen={vaultOpen}
++        onToggleVault={
++          vaultStore
++            ? () =>
++                setVaultOpen((v) => {
++                  localStorage.setItem('mdapp.vaultOpen', v ? '0' : '1')
++                  return !v
++                })
++            : undefined
++        }
+         hasOutline={outlineItems.length > 0}
+         spellcheck={spellcheck}
+         onToggleSpellcheck={() => setSpellcheck((v) => !v)}
+@@ -1142,6 +1168,11 @@ export default function App() {
+             />
+           )}
+         </div>
++        {vaultStore && vaultOpen && !sourceMode && (
++          <div className="md-vault">
++            <VaultSidebar store={vaultStore} openPath={openVaultPath} />
++          </div>
++        )}
+         {outlineOpen && !sourceMode && (
+           <OutlinePane
+             items={outlineItems}
+diff --git a/apps/markdown/src/renderer/components/Ribbon.tsx b/apps/markdown/src/renderer/components/Ribbon.tsx
+index 74b6d98..c730a5b 100644
+--- a/apps/markdown/src/renderer/components/Ribbon.tsx
++++ b/apps/markdown/src/renderer/components/Ribbon.tsx
+@@ -32,6 +32,7 @@ import {
+   IconTable,
+   IconTaskList,
+   IconUndo,
++  IconVault,
+ } from './icons'
+ 
+ interface Props {
+@@ -55,6 +56,9 @@ interface Props {
+   outlineOpen: boolean
+   onToggleOutline: () => void
+   hasOutline: boolean
++  /** Obsidian vault sidebar; the button is hidden when there is no vault bridge */
++  vaultOpen?: boolean
++  onToggleVault?: () => void
+   spellcheck: boolean
+   onToggleSpellcheck: () => void
+   aiOpen: boolean
+@@ -193,6 +197,8 @@ export function Ribbon({
+   outlineOpen,
+   onToggleOutline,
+   hasOutline,
++  vaultOpen,
++  onToggleVault,
+   spellcheck,
+   onToggleSpellcheck,
+   aiOpen,
+@@ -583,6 +589,16 @@ export function Ribbon({
+                 <IconOutlineView size={ICON} />
+               </IconBtn>
+             )}
++            {!sourceMode && onToggleVault && (
++              <IconBtn
++                title="Obsidian vault"
++                active={Boolean(vaultOpen)}
++                disabled={disabled}
++                onClick={onToggleVault}
++              >
++                <IconVault size={ICON} />
++              </IconBtn>
++            )}
+             <IconBtn
+               title={t('spellcheck')}
+               active={spellcheck}
+diff --git a/apps/markdown/src/renderer/components/icons.tsx b/apps/markdown/src/renderer/components/icons.tsx
+index af1d369..8e78e3f 100644
+--- a/apps/markdown/src/renderer/components/icons.tsx
++++ b/apps/markdown/src/renderer/components/icons.tsx
+@@ -54,6 +54,16 @@ function Svg({ size = 20, children }: IconProps & { children: ReactNode }) {
+   )
+ }
+ 
++/** folder with a link mark: the Obsidian vault sidebar */
++export function IconVault(props: IconProps) {
++  return (
++    <Svg {...props}>
++      <path d="M1.8 4.2c0-.8.6-1.4 1.4-1.4h3l1.4 1.6h5.2c.8 0 1.4.6 1.4 1.4v6.4c0 .8-.6 1.4-1.4 1.4H3.2c-.8 0-1.4-.6-1.4-1.4z" />
++      <path d="M6.6 9.8l2.8-2.8M7.4 7.4l.6-.6a1.2 1.2 0 0 1 1.7 1.7l-.6.6M8.6 9.6l-.6.6a1.2 1.2 0 0 1-1.7-1.7l.6-.6" />
++    </Svg>
++  )
++}
++
+ export function IconTaskList(props: IconProps) {
+   return (
+     <Svg {...props}>
+diff --git a/apps/markdown/src/renderer/editor/extensions.ts b/apps/markdown/src/renderer/editor/extensions.ts
+index 2839c98..333da26 100644
+--- a/apps/markdown/src/renderer/editor/extensions.ts
++++ b/apps/markdown/src/renderer/editor/extensions.ts
+@@ -1,4 +1,5 @@
+ import type { AnyExtension } from '@tiptap/core'
++import { obsidianExtensions, type ObsidianEditorOptions } from 'genoffice-obsidian/editor'
+ import StarterKit from '@tiptap/starter-kit'
+ import { Table, TableKit } from '@tiptap/extension-table'
+ import { OrderedList, TaskList } from '@tiptap/extension-list'
+@@ -18,6 +19,7 @@ import { buildMathExtensions } from './math'
+ import { Redaction } from './Redaction'
+ import {
+   BlockStartEscapedParagraph,
++  renderingTable,
+   SelectiveEscapeMarkdown,
+   withTableRendering,
+ } from './markdownEscape'
+@@ -41,6 +43,8 @@ import { t } from '../i18n/locale'
+ export interface BuildExtensionsOptions {
+   slashController: SlashController
+   slashItems: () => SlashItem[]
++  /** Obsidian vault links and embeds; omitted when the preload has no vault bridge */
++  obsidian?: Omit<ObsidianEditorOptions, 'isInTable'>
+ }
+ 
+ export function buildExtensions(options: BuildExtensionsOptions): AnyExtension[] {
+@@ -135,5 +139,9 @@ export function buildExtensions(options: BuildExtensionsOptions): AnyExtension[]
+       controller: options.slashController,
+       items: options.slashItems,
+     }),
++    // last: its Markdown guard wraps the escaping SelectiveEscapeMarkdown installs
++    ...(options.obsidian
++      ? obsidianExtensions({ ...options.obsidian, isInTable: renderingTable })
++      : []),
+   ]
+ }
+diff --git a/apps/markdown/src/renderer/main.tsx b/apps/markdown/src/renderer/main.tsx
+index daf3a61..5436a2d 100644
+--- a/apps/markdown/src/renderer/main.tsx
++++ b/apps/markdown/src/renderer/main.tsx
+@@ -16,6 +16,7 @@ import '@genoffice/ui/ai-panel-prefs.css'
+ import '@genoffice/ui/ai-scope-quote.css'
+ import '@genoffice/ui/image-viewer.css'
+ import 'katex/dist/katex.min.css'
++import 'genoffice-obsidian/styles.css'
+ import './styles.css'
+ import { applyAiPanelPrefs, installScreenTips } from '@genoffice/ui'
+ 
+diff --git a/apps/markdown/src/renderer/styles.css b/apps/markdown/src/renderer/styles.css
+index d4e6fa2..1db84fe 100644
+--- a/apps/markdown/src/renderer/styles.css
++++ b/apps/markdown/src/renderer/styles.css
+@@ -2120,6 +2120,16 @@ html.genoffice-popover-open .ribbon-tabs {
+ 
+ /* ---- document outline sidebar (PDF bookmark parity) ---- */
+ 
++.md-vault {
++  display: flex;
++  flex-shrink: 0;
++  width: 240px;
++  min-height: 0;
++  border-right: 1px solid var(--border);
++  padding-top: 4px;
++  --obsidian-link: var(--accent, #5b5bd6);
++}
++
+ .md-outline {
+   display: flex;
+   flex-direction: column;
+diff --git a/apps/markdown/tests/obsidian-links.test.ts b/apps/markdown/tests/obsidian-links.test.ts
+new file mode 100644
+index 0000000..bdee9ee
+--- /dev/null
++++ b/apps/markdown/tests/obsidian-links.test.ts
+@@ -0,0 +1,75 @@
++import { afterEach, describe, expect, it } from 'vitest'
++import { Editor } from '@tiptap/core'
++import { getDefaults, marked } from 'marked'
++import { VaultStore, type VaultClient } from 'genoffice-obsidian'
++import { buildExtensions } from '../src/renderer/editor/extensions'
++
++const editors: Editor[] = []
++afterEach(() => {
++  for (const e of editors.splice(0)) e.destroy()
++})
++
++const client: VaultClient = {
++  current: async () => ({
++    root: '/v',
++    name: 'v',
++    files: [{ path: 'Home.md' }, { path: 'Plan.md' }],
++    truncated: false,
++  }),
++  pick: async () => null,
++  detect: async () => null,
++  close: async () => {},
++  readText: async () => '# Plan',
++  readImage: async () => null,
++  absolutePath: async (p) => `/v/${p}`,
++  createNote: async (p) => `/v/${p}`,
++  onChanged: () => () => {},
++}
++
++function open(md: string): Editor {
++  marked.setOptions(getDefaults())
++  const editor = new Editor({
++    extensions: buildExtensions({
++      slashController: { onOpen() {}, onUpdate() {}, onKeyDown: () => false, onClose() {} },
++      slashItems: () => [],
++      obsidian: { store: new VaultStore(client), openPath: () => {} },
++    }),
++    content: '',
++  })
++  editors.push(editor)
++  editor.commands.setContent(md, { contentType: 'markdown' })
++  return editor
++}
++
++const count = (e: Editor, type: string) =>
++  (JSON.stringify(e.getJSON()).match(new RegExp(`"type":"${type}"`, 'g')) ?? []).length
++
++describe('Obsidian links in the GenOffice editor', () => {
++  it.each([
++    'See [[Plan]], [[Plan#Goals|goals]] and [[#Intro]].',
++    '![[Plan#Goals]]\n\n![[diagram.png|300]]',
++    '# Heading with [[Home]]\n\n- [ ] task [[Plan]]\n- [x] done ![[pic.png]]',
++    '**bold [[Home]]** and *[[Plan|it]]* and `[[code]]`',
++    // GenOffice pads table columns on save; the input is already in that shape
++    '| Note | Link               |\n| ---- | ------------------ |\n| a    | [[Plan\\|the plan]] |',
++    'Math $x^2$ next to [[Plan]] and a [real link](https://example.com).',
++    '```js\nconst a = "[[not a link]]"\n```',
++    'Plain [brackets] and [1] stay as typed next to [[Home]].',
++  ])('round-trips %j', (md) => {
++    const editor = open(md)
++    expect(editor.getMarkdown().trimEnd()).toBe(md)
++    // and a second pass is stable
++    expect(open(editor.getMarkdown()).getMarkdown().trimEnd()).toBe(md)
++  })
++
++  it('makes nodes where links stand alone and leaves code alone', () => {
++    const editor = open('[[Plan]] ![[pic.png]] `[[x]]`\n\n```\n[[y]]\n```')
++    expect(count(editor, 'wikiLink')).toBe(1)
++    expect(count(editor, 'wikiEmbed')).toBe(1)
++  })
++
++  it('keeps table links as nodes', () => {
++    const editor = open('| a |\n| --- |\n| [[Plan\\|p]] |')
++    expect(count(editor, 'wikiLink')).toBe(1)
++  })
++})

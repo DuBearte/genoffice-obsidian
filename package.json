@@ -1,0 +1,53 @@
+{
+  "name": "genoffice-obsidian",
+  "version": "0.1.0",
+  "description": "Obsidian vault support for the GenOffice Markdown editor: [[wikilinks]], ![[embeds]], and opening a vault folder",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./editor": "./src/editor/index.ts",
+    "./main": "./src/main/vault-main.ts",
+    "./preload": "./src/preload/vault-preload.ts",
+    "./react": "./src/react/VaultSidebar.tsx",
+    "./styles.css": "./src/editor/obsidian.css"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@tiptap/core": "3.31.0",
+    "@tiptap/markdown": "3.31.0",
+    "@tiptap/pm": "3.31.0",
+    "electron": ">=30",
+    "marked": ">=15",
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "electron": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@tiptap/core": "3.31.0",
+    "@tiptap/extension-table": "3.31.0",
+    "@tiptap/markdown": "3.31.0",
+    "@tiptap/pm": "3.31.0",
+    "@tiptap/starter-kit": "3.31.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.14",
+    "electron": "^43.7.9",
+    "jsdom": "^28.0.0",
+    "marked": "^17.0.1",
+    "react": "^19.2.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

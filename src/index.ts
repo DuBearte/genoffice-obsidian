@@ -1,0 +1,6 @@
+export * from './core/wikilink'
+export * from './core/vault-index'
+export * from './core/sections'
+export * from './core/vault-store'
+export type { VaultClient, VaultSnapshot } from './core/vault-client'
+export { VAULT_CHANNELS } from './shared/channels'

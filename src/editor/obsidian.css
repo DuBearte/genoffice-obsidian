@@ -1,0 +1,185 @@
+/* Obsidian links and embeds inside the GenOffice Markdown editor.
+   Colors follow the editor's text/accent via currentColor and color-mix,
+   so light, dark and document themes all work without overrides. */
+
+.ProseMirror .obsidian-link,
+.obsidian-embed-body .obsidian-link {
+  color: var(--obsidian-link, #5b5bd6);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.ProseMirror .obsidian-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.ProseMirror .obsidian-link.is-unresolved,
+.obsidian-embed-body .obsidian-link.is-unresolved {
+  opacity: 0.6;
+  text-decoration-style: dashed;
+}
+
+.ProseMirror .ProseMirror-selectednode.obsidian-link,
+.ProseMirror .ProseMirror-selectednode.obsidian-embed {
+  outline: 2px solid color-mix(in srgb, var(--obsidian-link, #5b5bd6) 60%, transparent);
+  outline-offset: 1px;
+}
+
+/* inline in the document model, block on screen: `![[…]]` normally sits on its own line */
+.ProseMirror .obsidian-embed {
+  display: block;
+  margin: 0.5em 0;
+  white-space: normal;
+  user-select: none;
+}
+
+.ProseMirror .obsidian-embed[data-kind='note'] {
+  border-inline-start: 3px solid color-mix(in srgb, var(--obsidian-link, #5b5bd6) 55%, transparent);
+  padding: 0.25em 0 0.25em 0.9em;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  border-radius: 0 6px 6px 0;
+}
+
+.ProseMirror .obsidian-embed img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.obsidian-embed-title,
+.obsidian-embed-missing,
+.obsidian-embed-file {
+  font: inherit;
+  font-size: 0.85em;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: color-mix(in srgb, currentColor 65%, transparent);
+  cursor: pointer;
+}
+
+.obsidian-embed-title:hover,
+.obsidian-embed-file:hover {
+  color: var(--obsidian-link, #5b5bd6);
+}
+
+.obsidian-embed-missing {
+  font-style: italic;
+}
+
+.obsidian-embed-source {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+.obsidian-embed-body > :first-child {
+  margin-top: 0.25em;
+}
+
+.obsidian-embed-body > :last-child {
+  margin-bottom: 0;
+}
+
+/* sidebar */
+.obsidian-vault {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.obsidian-vault--empty {
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+.obsidian-vault-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.obsidian-vault-header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.obsidian-vault button {
+  font: inherit;
+  color: inherit;
+}
+
+.obsidian-vault-filter {
+  margin: 0 0.75rem 0.5rem;
+  padding: 0.3rem 0.5rem;
+  font: inherit;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 6px;
+}
+
+.obsidian-vault-tree,
+.obsidian-vault-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.obsidian-vault-tree {
+  overflow: auto;
+  flex: 1;
+  padding-bottom: 0.75rem;
+}
+
+.obsidian-vault-file,
+.obsidian-vault-folder {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  width: 100%;
+  padding-block: 0.2rem;
+  padding-inline-end: 0.75rem;
+  text-align: start;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.obsidian-vault-file:hover,
+.obsidian-vault-folder:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.obsidian-vault-file.is-active {
+  background: color-mix(in srgb, var(--obsidian-link, #5b5bd6) 18%, transparent);
+}
+
+.obsidian-vault-folder {
+  font-weight: 600;
+}
+
+.obsidian-vault-path {
+  font-size: 0.85em;
+  opacity: 0.55;
+}
+
+.obsidian-vault-error {
+  margin: 0 0.75rem 0.5rem;
+  font-size: 0.85em;
+  color: #c2410c;
+}
