@@ -3,7 +3,7 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { findWikiLinks, parseWikiLink } from '../core/wikilink'
-import { followLink } from './follow'
+import { followLink, reportError } from './follow'
 import type { ObsidianEditorOptions } from './options'
 
 export const wikiTextLinksKey = new PluginKey<DecorationSet>('wikiTextLinks')
@@ -56,7 +56,7 @@ export function createWikiTextLinks(options: ObsidianEditorOptions) {
               const raw = view.state.doc
                 .textBetween(deco.from, deco.to)
                 .replace(/^!?\[\[|\]\]$/g, '')
-              void followLink(editor, parseWikiLink(raw), options)
+              void followLink(editor, parseWikiLink(raw), options).catch(reportError)
               return true
             },
           },

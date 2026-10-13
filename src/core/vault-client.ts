@@ -10,6 +10,11 @@ export interface VaultSnapshot {
   files: VaultFile[]
   /** true when the listing stopped at the file cap */
   truncated: boolean
+  /**
+   * On change reports: the vault-relative paths written, created or deleted
+   * since the last report. Absent when unknown, which means "anything".
+   */
+  changed?: string[]
 }
 
 /**

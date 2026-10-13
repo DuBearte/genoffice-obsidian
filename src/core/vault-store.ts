@@ -2,6 +2,30 @@ import type { VaultClient, VaultSnapshot } from './vault-client'
 import { VaultIndex, type VaultFile } from './vault-index'
 
 /**
+ * What a store update changed. `structure`: the vault, its file list or the
+ * open note moved, so links may resolve differently. `paths`: files whose
+ * content changed (null = possibly any of them).
+ */
+export interface VaultChange {
+  structure: boolean
+  paths: ReadonlySet<string> | null
+}
+
+const EVERYTHING: VaultChange = { structure: true, paths: null }
+
+/** same vault, same files, same aliases */
+function sameListing(a: VaultSnapshot | null, b: VaultSnapshot | null): boolean {
+  if (!a || !b || a.root !== b.root || a.files.length !== b.files.length) return false
+  return a.files.every((file, i) => {
+    const other = b.files[i]!
+    return (
+      file.path === other.path &&
+      (file.aliases ?? []).join('\u0000') === (other.aliases ?? []).join('\u0000')
+    )
+  })
+}
+
+/**
  * Renderer-side state shared by the editor extensions and the sidebar: the
  * attached vault, its link index, and where the open document sits in it.
  */
@@ -9,7 +33,7 @@ export class VaultStore {
   private snapshot: VaultSnapshot | null = null
   private index = new VaultIndex([])
   private documentPath: string | null = null
-  private readonly listeners = new Set<() => void>()
+  private readonly listeners = new Set<(change: VaultChange) => void>()
   private readonly textCache = new Map<string, Promise<string>>()
   private unsubscribe: (() => void) | null = null
 
@@ -78,7 +102,8 @@ export class VaultStore {
     return cached
   }
 
-  subscribe(listener: () => void): () => void {
+  /** `listener` gets what changed, so a view can skip work that does not concern it */
+  subscribe(listener: (change: VaultChange) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
@@ -90,14 +115,22 @@ export class VaultStore {
   }
 
   private apply(snapshot: VaultSnapshot | null): void {
+    // a save (GenOffice autosaves every 30s) rewrites a file but keeps the
+    // listing: keep the index and tell only the views showing that file
+    if (snapshot?.changed && sameListing(this.snapshot, snapshot)) {
+      const paths = new Set(snapshot.changed)
+      for (const path of paths) this.textCache.delete(path)
+      this.emit({ structure: false, paths })
+      return
+    }
     this.snapshot = snapshot
     this.index = new VaultIndex(snapshot?.files ?? [])
     this.textCache.clear()
     this.emit()
   }
 
-  private emit(): void {
-    for (const listener of [...this.listeners]) listener()
+  private emit(change: VaultChange = EVERYTHING): void {
+    for (const listener of [...this.listeners]) listener(change)
   }
 }
 

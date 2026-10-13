@@ -37,12 +37,27 @@ if [ "$CURRENT" = "$LATEST" ] && [ -f "$APPLIED" ] && cmp -s "$PATCH" "$APPLIED"
 fi
 log "updating to $LATEST (was: ${CURRENT:-$(go describe --tags --always)})"
 
-# 3. take the old patch out (the copy that was applied, else the repo's)
-OLD="$APPLIED"
-[ -f "$OLD" ] || OLD="$PATCH"
-if go apply -R --check "$OLD" 2>/dev/null; then
+# 3. take the old patch out: the copy this script applied, else the repo's
+#    current patch, else any earlier version of it (applied by hand)
+OLD=""
+CANDIDATES="$(mktemp -d)"
+trap 'rm -rf "$CANDIDATES"' EXIT
+[ -f "$APPLIED" ] && cp "$APPLIED" "$CANDIDATES/0.patch"
+cp "$PATCH" "$CANDIDATES/1.patch"
+n=2
+for rev in $(git -C "$PLUGIN_DIR" log --format=%H -- integration/genoffice.patch 2>/dev/null); do
+  git -C "$PLUGIN_DIR" show "$rev:integration/genoffice.patch" > "$CANDIDATES/$n.patch" 2>/dev/null || continue
+  n=$((n + 1))
+done
+for candidate in $(ls "$CANDIDATES" | sort -n); do
+  if go apply -R --check "$CANDIDATES/$candidate" 2>/dev/null; then
+    OLD="$CANDIDATES/$candidate"
+    break
+  fi
+done
+if [ -n "$OLD" ]; then
   go apply -R "$OLD"
-elif go apply --check "$PATCH" 2>/dev/null; then
+elif go apply --check "$PATCH" 2>/dev/null || [ -z "$(go status --porcelain --untracked-files=no -- apps/markdown)" ]; then
   : # patch not applied at all
 else
   die "the GenOffice checkout has changes this script did not make; commit or discard them first"
@@ -51,7 +66,7 @@ fi
 go checkout -q -- package-lock.json 2>/dev/null || true
 if [ -n "$(go status --porcelain --untracked-files=no)" ]; then
   CHANGES="$(go status --short --untracked-files=no | head -5 | tr '\n' ' ')"
-  go apply "$OLD" # leave GenOffice as it was: patched
+  [ -n "$OLD" ] && go apply "$OLD" # leave GenOffice as it was: patched
   die "the GenOffice checkout has other local changes, so it was left on its current release: $CHANGES"
 fi
 PREVIOUS="$(go rev-parse HEAD)"
@@ -60,15 +75,17 @@ PREVIOUS="$(go rev-parse HEAD)"
 go checkout -q --detach "$LATEST"
 if ! go apply --check "$PATCH" 2>/dev/null; then
   go checkout -q --detach "$PREVIOUS"
-  go apply "$OLD"
+  [ -n "$OLD" ] && go apply "$OLD"
   die "the patch does not apply to $LATEST yet; staying on the previous release. Update the plugin repo, then run this again."
 fi
 go apply "$PATCH"
 cp "$PATCH" "$APPLIED"
-echo "$LATEST" > "$STATE"
 
-# 5. dependencies (also fetches the current plugin from GitHub)
+# 5. dependencies (also fetches the current plugin from GitHub). The release is
+#    recorded only after this works, so a failed install is retried next run.
 if [ "${SKIP_NPM:-}" != 1 ]; then
-  (cd "$GENOFFICE_DIR" && npm install --no-audit --no-fund) || die "npm install failed; run it by hand in $GENOFFICE_DIR"
+  (cd "$GENOFFICE_DIR" && npm install --no-audit --no-fund) ||
+    die "npm install failed; it will be retried on the next run (or run it by hand in $GENOFFICE_DIR)"
 fi
+echo "$LATEST" > "$STATE"
 log "done: GenOffice $LATEST with the Obsidian patch. Start it with: cd $GENOFFICE_DIR && npm run dev"

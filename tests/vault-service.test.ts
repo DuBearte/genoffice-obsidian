@@ -56,6 +56,11 @@ describe('resolveInside', () => {
     expect(await resolveInside(vault, 'Projects/Plan.md')).toBe(join(vault, 'Projects', 'Plan.md'))
   })
 
+  it('accepts a file whose name starts with two dots', async () => {
+    await writeFile(join(vault, '..notes.md'), 'x')
+    expect(await resolveInside(vault, '..notes.md')).toBe(join(vault, '..notes.md'))
+  })
+
   it('refuses traversal, absolute paths, NUL and symlink escapes', async () => {
     for (const bad of [
       '../outside/secret.md',

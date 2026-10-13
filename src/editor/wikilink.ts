@@ -8,7 +8,7 @@ import {
   matchWikiLinkAt,
   parseWikiLink,
 } from '../core/wikilink'
-import { followLink } from './follow'
+import { followLink, reportError } from './follow'
 import { renderEmbed } from './embed'
 import type { ObsidianEditorOptions } from './options'
 
@@ -45,11 +45,12 @@ function tokenizer(embed: boolean) {
 /**
  * marked unescapes `\|` inside GFM table cells before inline tokenizing, so a
  * table's `[[Note\|alias]]` reaches us as `[[Note|alias]]`; it is written back
- * escaped by renderMarkdown when the serializer is inside a table.
+ * escaped by renderMarkdown when the serializer is inside a table. Outside a
+ * table the link is written exactly as it was read (`\|` included).
  */
 function markdownRaw(node: { attrs?: Record<string, unknown> }, inTable: boolean): string {
   const raw = String(node.attrs?.raw ?? '')
-  return inTable ? escapeForTable(raw) : raw.replace(/\\\|/g, '|')
+  return inTable ? escapeForTable(raw) : raw
 }
 
 function sharedSpec(embed: boolean, options: ObsidianEditorOptions): Partial<NodeConfig> {
@@ -124,7 +125,10 @@ function linkView(node: PMNode, editor: Editor, options: ObsidianEditorOptions) 
     dom.classList.toggle('is-unresolved', !resolved && options.store.vault !== null)
   }
   paint()
-  const unsubscribe = options.store.subscribe(paint)
+  // only the file list decides how a link resolves; content saves do not
+  const unsubscribe = options.store.subscribe((change) => {
+    if (change.structure) paint()
+  })
 
   dom.addEventListener('mousedown', (e) => {
     // keep ProseMirror from turning the press into a node selection drag
@@ -132,7 +136,7 @@ function linkView(node: PMNode, editor: Editor, options: ObsidianEditorOptions) 
   })
   dom.addEventListener('click', (e) => {
     e.preventDefault()
-    void followLink(editor, parseWikiLink(String(current.attrs.raw)), options)
+    void followLink(editor, parseWikiLink(String(current.attrs.raw)), options).catch(reportError)
   })
 
   return {
@@ -162,7 +166,11 @@ function embedView(node: PMNode, editor: Editor, options: ObsidianEditorOptions)
     void renderEmbed(dom, String(current.attrs.raw), editor, options, () => mine === generation)
   }
   paint()
-  const unsubscribe = options.store.subscribe(paint)
+  // reload when links may resolve differently, or when a file this embed shows was saved
+  const unsubscribe = options.store.subscribe((change) => {
+    const deps = dom.dataset.deps ? dom.dataset.deps.split('\n') : []
+    if (change.structure || !change.paths || deps.some((p) => change.paths!.has(p))) paint()
+  })
 
   return {
     dom,

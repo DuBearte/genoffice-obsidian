@@ -20,8 +20,24 @@ interface Replacement {
   raw: string
 }
 
-/** `[[…]]` runs in one textblock that should become nodes; the run holding the cursor waits */
-function scanBlock(block: PMNode, blockPos: number, head: number): Replacement[] {
+interface Range {
+  from: number
+  to: number
+}
+
+/**
+ * `[[…]]` runs in one textblock that should become nodes: those this edit
+ * touched, or the one the cursor just left. Other `[[…]]` text in the block
+ * stays text: it was escaped in the file (`\[\[x\]\]`) and is not a link.
+ * The run holding the cursor waits until the cursor leaves.
+ */
+function scanBlock(
+  block: PMNode,
+  blockPos: number,
+  head: number,
+  touched: readonly Range[],
+  left: number | null,
+): Replacement[] {
   if (block.type.spec.code) return []
   const out: Replacement[] = []
   block.forEach((child, offset) => {
@@ -34,7 +50,9 @@ function scanBlock(block: PMNode, blockPos: number, head: number): Replacement[]
       const to = from + m.text.length
       // typing inside an unfinished link: leave it alone until the cursor leaves
       if (head > from && head < to) continue
-      out.push({ from, to, embed: m.embed, raw: m.raw })
+      const edited = touched.some((r) => r.from < to && r.to > from)
+      const justLeft = left !== null && left > from && left < to
+      if (edited || justLeft) out.push({ from, to, embed: m.embed, raw: m.raw })
     }
   })
   return out
@@ -93,25 +111,28 @@ export const WikiAutoConvert = Extension.create({
           if (!docChanged && !selectionMoved) return null
 
           const blocks = new Map<number, PMNode>()
-          if (docChanged) {
-            const transform = combineTransactionSteps(oldState.doc, [...transactions])
+          const touched: Range[] = []
+          const transform = docChanged
+            ? combineTransactionSteps(oldState.doc, [...transactions])
+            : null
+          if (transform) {
             for (const { newRange } of getChangedRanges(transform)) {
+              touched.push(newRange)
               textblocksAround(newState.doc, newRange.from, newRange.to, blocks)
             }
           }
+          let left: number | null = null
           if (selectionMoved) {
             // the cursor may just have left a run it was holding back
-            let mapped = oldState.selection.head
-            if (docChanged) {
-              const transform = combineTransactionSteps(oldState.doc, [...transactions])
-              mapped = transform.mapping.map(mapped)
-            }
-            textblocksAround(newState.doc, mapped, mapped, blocks)
+            left = transform
+              ? transform.mapping.map(oldState.selection.head)
+              : oldState.selection.head
+            textblocksAround(newState.doc, left, left, blocks)
           }
 
           const head = newState.selection.head
           const replacements = [...blocks.entries()].flatMap(([pos, node]) =>
-            scanBlock(node, pos, head),
+            scanBlock(node, pos, head, touched, left),
           )
           if (!replacements.length) return null
 

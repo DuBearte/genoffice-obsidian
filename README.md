@@ -71,7 +71,7 @@ journalctl --user -u genoffice-update.service -n 50     # what the last run did
 
 - **Editing a link**: press Backspace right after a link to turn it back into text (`[[Note]`). Edit it, then type `]` to make it a link again. Typing a complete `[[…]]` converts it as soon as the brackets close.
 - **Links inside bold, italic or strikethrough** (`**see [[Note]]**`) stay as text, styled as links. Open them with Cmd/Ctrl-click. Tiptap's Markdown serializer closes formatting around inline nodes, so turning these into nodes would rewrite `**see [[Note]]**` as `**see** [[Note]]` on save.
-- **Security**: the main process only serves files inside the attached vault. It rejects `..`, absolute paths and symlinks that point outside the vault, and it only reads notes and images, never other file types. Embedded note HTML is sanitized: no scripts, event handlers or `javascript:` URLs.
+- **Security**: the main process only serves files inside the attached vault. It rejects `..`, absolute paths and symlinks that point outside the vault, and it only reads notes and images, never other file types. Embedded note HTML goes through [DOMPurify](https://github.com/cure53/DOMPurify): no scripts, event handlers, styles or SVG/MathML, and only web and mail links survive.
 - **Large vaults**: the listing stops at 20,000 files and the sidebar says so. Notes over 5 MB and images over 25 MB are not loaded.
 - **Not included yet**: autocomplete while typing `[[`, backlinks, renaming a note and updating the links to it, and Obsidian's `%%comments%%` / callouts / Canvas.
 
@@ -79,7 +79,7 @@ journalctl --user -u genoffice-update.service -n 50     # what the last run did
 
 ```sh
 pnpm install
-pnpm test        # 51 tests: parser, resolver, sections, editor round-trip, embeds, main-process path safety
+pnpm test        # 57 tests: parser, resolver, sections, editor round-trip, embeds, sanitizing, main-process path safety
 pnpm typecheck
 ```
 

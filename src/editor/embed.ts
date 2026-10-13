@@ -1,10 +1,11 @@
 import type { Editor } from '@tiptap/core'
+import DOMPurify from 'dompurify'
 import { Marked, type TokenizerAndRendererExtension } from 'marked'
 import { embedFragment } from '../core/sections'
 import { isImage, isNote } from '../core/vault-index'
 import type { VaultStore } from '../core/vault-store'
 import { displayText, matchWikiLinkAt, parseEmbedSize, parseWikiLink } from '../core/wikilink'
-import { followLink } from './follow'
+import { followLink, reportError } from './follow'
 import type { ObsidianEditorOptions } from './options'
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
@@ -51,47 +52,26 @@ function previewRenderer(store: VaultStore, fromPath: string | null): Marked {
   })
 }
 
-const BLOCKED_TAGS = new Set([
-  'SCRIPT',
-  'STYLE',
-  'IFRAME',
-  'OBJECT',
-  'EMBED',
-  'LINK',
-  'META',
-  'BASE',
-  'FORM',
-  'FRAME',
-  'FRAMESET',
-])
-
-/** notes are the user's own files, but still: no scripts, handlers or javascript: URLs in the editor */
+/**
+ * Notes are the user's own files, but a vault can come from anyone: no
+ * scripts, handlers, styles, forms or non-web URLs in the editor. DOMPurify
+ * also covers the SVG/MathML tricks a hand-written filter misses.
+ */
 export function sanitizeInto(container: HTMLElement, html: string): void {
-  const template = document.createElement('template')
-  template.innerHTML = html
-  const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT)
-  const doomed: Element[] = []
-  while (walker.nextNode()) {
-    const el = walker.currentNode as Element
-    if (BLOCKED_TAGS.has(el.tagName)) {
-      doomed.push(el)
-      continue
-    }
-    for (const attr of [...el.attributes]) {
-      const name = attr.name.toLowerCase()
-      const value = attr.value.trim().toLowerCase()
-      if (name.startsWith('on') || name === 'style' || name === 'srcset') {
-        el.removeAttribute(attr.name)
-      } else if (
-        (name === 'href' || name === 'src' || name === 'xlink:href' || name === 'action') &&
-        !/^(https?:|mailto:|#)/.test(value)
-      ) {
-        el.removeAttribute(attr.name)
-      }
+  const fragment = DOMPurify.sanitize(html, {
+    RETURN_DOM_FRAGMENT: true,
+    FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'svg', 'math'],
+    FORBID_ATTR: ['style', 'srcset'],
+  })
+  // relative links (`[x](other.md)`) would navigate the editor itself away;
+  // only web and mail links stay, and they open outside (see renderEmbed)
+  for (const el of fragment.querySelectorAll('[href], [src]')) {
+    for (const name of ['href', 'src']) {
+      const value = el.getAttribute(name)
+      if (value !== null && !/^(?:https?:|mailto:)/i.test(value.trim())) el.removeAttribute(name)
     }
   }
-  for (const el of doomed) el.remove()
-  container.replaceChildren(template.content)
+  container.replaceChildren(fragment)
 }
 
 function chip(label: string, className: string, onClick?: () => void): HTMLElement {
@@ -119,9 +99,11 @@ export async function renderEmbed(
   const parts = parseWikiLink(raw)
   const from = store.currentNote
   const file = parts.target ? store.resolve(parts.target) : null
-  const open = () => void followLink(editor, parts, options)
+  const open = () => void followLink(editor, parts, options).catch(reportError)
   dom.className = 'obsidian-embed'
   dom.dataset.kind = ''
+  // the files this embed shows; a save of one of them reloads it
+  dom.dataset.deps = file ? file.path : ''
 
   if (!store.vault) {
     dom.dataset.kind = 'detached'
@@ -199,15 +181,21 @@ export async function renderEmbed(
       const linkParts = parseWikiLink(a.dataset.wikilink ?? '')
       // links inside the embed resolve from the embedded note, not this one
       const target = linkParts.target ? store.links.resolve(linkParts.target, file.path) : file
-      void followLink(editor, { ...linkParts, target: target?.path ?? linkParts.target }, options)
+      void followLink(
+        editor,
+        { ...linkParts, target: target?.path ?? linkParts.target },
+        options,
+      ).catch(reportError)
     })
   }
   for (const a of body.querySelectorAll<HTMLAnchorElement>('a[href^="http"]')) {
     a.target = '_blank'
     a.rel = 'noopener noreferrer'
   }
+  const images = [...body.querySelectorAll<HTMLImageElement>('img[data-vault-image]')]
+  dom.dataset.deps = [file.path, ...images.map((img) => img.dataset.vaultImage!)].join('\n')
   await Promise.all(
-    [...body.querySelectorAll<HTMLImageElement>('img[data-vault-image]')].map(async (img) => {
+    images.map(async (img) => {
       const url = await store.client.readImage(img.dataset.vaultImage!).catch(() => null)
       if (url && isCurrent()) img.src = url
     }),

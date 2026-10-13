@@ -24,7 +24,8 @@ const IMAGE_MIME: Record<string, string> = {
 
 function isInside(root: string, target: string): boolean {
   const rel = relative(root, target)
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+  // `..notes.md` is a file in the root, not a step out of it
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
 }
 
 /**
@@ -135,6 +136,13 @@ export async function findVaultRoot(documentPath: string): Promise<string | null
   return null
 }
 
+interface WatchEntry {
+  watcher: FSWatcher | null
+  timer: NodeJS.Timeout | null
+  /** vault-relative paths touched since the last report; null = unknown */
+  changed: Set<string> | null
+}
+
 export interface VaultServiceOptions {
   /** JSON file remembering the last vault between launches */
   stateFile?: string
@@ -150,10 +158,7 @@ export interface VaultServiceOptions {
  */
 export class VaultService {
   private readonly rootByViewer = new Map<number, string>()
-  private readonly watchers = new Map<
-    string,
-    { watcher: FSWatcher | null; timer: NodeJS.Timeout | null }
-  >()
+  private readonly watchers = new Map<string, WatchEntry>()
   private lastRoot: string | null = null
   private loaded = false
 
@@ -263,22 +268,30 @@ export class VaultService {
 
   private ensureWatcher(root: string): void {
     if (this.watchers.has(root) || !this.options.onChanged) return
-    const entry: { watcher: FSWatcher | null; timer: NodeJS.Timeout | null } = {
-      watcher: null,
-      timer: null,
-    }
+    const entry: WatchEntry = { watcher: null, timer: null, changed: new Set() }
     this.watchers.set(root, entry)
     try {
       entry.watcher = watch(root, { recursive: true }, (_event, filename) => {
-        const name = String(filename ?? '')
-        // Obsidian rewrites its workspace file constantly; that is not a vault change
-        if (name.startsWith('.') || name.includes(`${sep}.`) || name.includes('/.')) return
+        const name = filename == null ? null : String(filename).split(sep).join('/')
+        // Obsidian rewrites its workspace file constantly, and GenOffice saves
+        // through a dot-named temp file; neither is a vault change
+        if (name !== null && (name.startsWith('.') || name.includes('/.'))) return
+        // null = the platform did not say which file; treat everything as changed
+        if (name === null || entry.changed === null) entry.changed = null
+        else entry.changed.add(name)
         if (entry.timer) clearTimeout(entry.timer)
         entry.timer = setTimeout(() => {
           entry.timer = null
+          const changed = entry.changed
+          entry.changed = new Set()
           void this.snapshot(root).then((snapshot) => {
             const viewers = this.viewersOf(root)
-            if (viewers.length) this.options.onChanged?.(root, snapshot, viewers)
+            if (!viewers.length) return
+            this.options.onChanged?.(
+              root,
+              changed ? { ...snapshot, changed: [...changed] } : snapshot,
+              viewers,
+            )
           })
         }, this.options.debounceMs ?? 400)
       })

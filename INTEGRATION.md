@@ -1,11 +1,11 @@
 # Wiring genoffice-obsidian into GenOffice
 
-The patch in `integration/genoffice.patch` was made against GenOffice commit `438d9c6` (October 2026). On that commit:
+The patch in `integration/genoffice.patch` targets GenOffice release `v0.11.727` (October 2026). On that release:
 
 - it applies cleanly
 - `tsc` passes
 - `electron-vite build` passes
-- all 1,079 Markdown tests pass except one, `close-asset-cleanup` › "resolves source pending ownership…". That test also fails on the unmodified commit.
+- all 1,108 Markdown tests pass except one, `close-asset-cleanup` › "resolves source pending ownership…". That test also fails on the unmodified release.
 
 If GenOffice has moved on and the patch no longer applies, the changes are small enough to make by hand:
 

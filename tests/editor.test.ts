@@ -236,3 +236,74 @@ describe('node views', () => {
     expect(editor.state.selection.$from.parent.textContent).toBe('Second')
   })
 })
+
+describe('review regressions', () => {
+  function make() {
+    const store = new VaultStore(memoryClient({ 'Home.md': '' }))
+    const editor = new Editor({
+      element: document.createElement('div'),
+      extensions: [StarterKit, Markdown, ...obsidianExtensions({ store, openPath: () => {} })],
+      content: '',
+    })
+    editors.push(editor)
+    return editor
+  }
+  const links = (e: Editor) => {
+    let n = 0
+    e.state.doc.descendants((x) => {
+      if (x.type.name === 'wikiLink') n++
+    })
+    return n
+  }
+
+  it('escaped link stays text after editing the same paragraph', () => {
+    const e = make()
+    e.commands.setContent('keep \\[\\[Home\\]\\] literal', { contentType: 'markdown' })
+    expect(links(e)).toBe(0)
+    e.commands.focus('end')
+    e.commands.insertContent('!')
+    expect(links(e)).toBe(0)
+  })
+
+  it('escaped pipe outside a table round-trips', () => {
+    const e = make()
+    e.commands.setContent('[[Home\\|alias]]', { contentType: 'markdown' })
+    expect(e.getMarkdown()).toBe('[[Home\\|alias]]')
+  })
+
+  it('a vault change that leaves the file list unchanged does not reload embeds', async () => {
+    let fire: ((s: any) => void) | null = null
+    const base = memoryClient({ 'Home.md': '', 'pic.png': '' })
+    let imageReads = 0
+    const client = {
+      ...base,
+      readImage: async (p: string) => {
+        imageReads++
+        return base.readImage(p)
+      },
+      onChanged: (h: any) => {
+        fire = h
+        return () => {}
+      },
+    }
+    const store = new VaultStore(client)
+    await store.setDocumentPath('/vault/Home.md')
+    const e = new Editor({
+      element: document.createElement('div'),
+      extensions: [StarterKit, Markdown, ...obsidianExtensions({ store, openPath: () => {} })],
+      content: '',
+    })
+    editors.push(e)
+    e.commands.setContent('![[pic.png]]', { contentType: 'markdown' })
+    await new Promise((r) => setTimeout(r, 10))
+    const before = imageReads
+    // what the main process sends after an autosave of Home.md: same files
+    for (let i = 0; i < 3; i++) fire!({ ...(await client.current()), changed: ['Home.md'] })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(imageReads - before).toBe(0)
+    // saving the embedded image itself does reload it
+    fire!({ ...(await client.current()), changed: ['pic.png'] })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(imageReads - before).toBe(1)
+  })
+})
