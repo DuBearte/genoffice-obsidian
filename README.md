@@ -42,7 +42,13 @@ A copy of GenOffice built from source doesn't update itself. `scripts/update-gen
 - If the patch doesn't fit a new release yet, it goes back to the release you had, patch included.
 - If you've edited GenOffice's files yourself, it changes nothing.
 
-To run it once a day automatically (systemd), install the timer from a terminal where `npm` works:
+On **Omarchy**, run it at the end of every system update (`omarchy-update`). This installs a hook in `~/.config/omarchy/hooks/post-update.d/`:
+
+```sh
+~/genoffice-obsidian/scripts/install-autoupdate.sh --omarchy ~/genoffice
+```
+
+On other systemd distributions, run it once a day instead. Install the timer from a terminal where `npm` works:
 
 ```sh
 ~/genoffice-obsidian/scripts/install-autoupdate.sh ~/genoffice
