@@ -85,4 +85,4 @@ pnpm typecheck
 
 The patch also adds `apps/markdown/tests/obsidian-links.test.ts` to GenOffice. That test runs the links through GenOffice's real extension list (`SelectiveEscapeMarkdown`, tables, math).
 
-License: Apache-2.0, same as GenOffice.
+License: [Apache-2.0](LICENSE), the same license as GenOffice. Copyright 2026 DuBearte.
